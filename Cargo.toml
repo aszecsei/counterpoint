@@ -1,0 +1,16 @@
+[package]
+name = "counterpoint"
+version = "0.1.0"
+authors = ["Alic Szecsei <alszecse@microsoft.com>"]
+edition = "2018"
+
+[dependencies]
+theory = { path = "./theory" }
+rand = "0.7.0"
+
+
+[workspace]
+
+members = [
+    "theory"
+]
