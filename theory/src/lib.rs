@@ -62,6 +62,7 @@ impl Note {
 
     /// Gets a note from the semitones above C. The notes are spelled using sharps.
     pub fn from_semitones_from_c(semitones: i8) -> Self {
+        let semitones = if semitones < 0 { semitones + 12 } else { semitones };
         let semitones = semitones % 12;
         match semitones {
             0 => Note(PitchBase::C, PitchModifier::Natural),
@@ -105,7 +106,16 @@ impl Pitch {
         self.0.semitones_from_c() + octave_difference
     }
     pub fn from_semitones_from_middle_c(semitones: i8) -> Self {
-        let octave_difference = semitones / 12;
+        let mut octave_difference = 0;
+        let mut semitones = semitones;
+        while semitones < 0 {
+            semitones += 12;
+            octave_difference -= 1;
+        }
+        while semitones > 12 {
+            semitones -= 12;
+            octave_difference += 1;
+        }
         Pitch(Note::from_semitones_from_c(semitones), 4 + octave_difference)
     }
 }
@@ -231,6 +241,31 @@ impl ops::Add<&i8> for &Pitch {
     type Output = Pitch;
     fn add(self, other: &i8) -> Self::Output {
         Pitch::from_semitones_from_middle_c(self.semitones_from_middle_c() + other)
+    }
+}
+
+impl ops::Sub<i8> for Pitch {
+    type Output = Pitch;
+    fn sub(self, other: i8) -> Self::Output {
+        Pitch::from_semitones_from_middle_c(self.semitones_from_middle_c() - other)
+    }
+}
+impl ops::Sub<i8> for &Pitch {
+    type Output = Pitch;
+    fn sub(self, other: i8) -> Self::Output {
+        Pitch::from_semitones_from_middle_c(self.semitones_from_middle_c() - other)
+    }
+}
+impl ops::Sub<&i8> for Pitch {
+    type Output = Pitch;
+    fn sub(self, other: &i8) -> Self::Output {
+        Pitch::from_semitones_from_middle_c(self.semitones_from_middle_c() - other)
+    }
+}
+impl ops::Sub<&i8> for &Pitch {
+    type Output = Pitch;
+    fn sub(self, other: &i8) -> Self::Output {
+        Pitch::from_semitones_from_middle_c(self.semitones_from_middle_c() - other)
     }
 }
 
@@ -600,5 +635,10 @@ mod tests {
             Note(PitchBase::E, PitchModifier::Natural),
             Note(PitchBase::F, PitchModifier::Natural),
         ]);
+    }
+
+    #[test]
+    fn below_middle_c() {
+        assert_eq!(Pitch::from_semitones_from_middle_c(-1), Pitch(Note(PitchBase::B, PitchModifier::Natural), 3));
     }
 }
