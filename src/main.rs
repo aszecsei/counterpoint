@@ -17,10 +17,21 @@ fn shuffle<T>(val: &mut [T]) {
     }
 }
 
-fn counterpoint(notes: &[Pitch], scale: &Scale) -> Option<Vec<Pitch>> {
+#[derive(Copy, Clone, Eq, PartialEq)]
+enum Direction {
+    Above,
+    Below,
+}
+
+fn counterpoint(notes: &[Pitch], scale: &Scale, direction: Direction) -> Option<Vec<Pitch>> {
     // The first note must be a perfect octave, unison, or fifth.
     
-    let mut opening_pitches = vec![notes[0] + Interval::Unison, notes[0] + Interval::PerfectFifth, notes[0] + 12];
+    let mut opening_pitches = if direction == Direction::Above {
+        vec![notes[0] + Interval::Unison, notes[0] + Interval::PerfectFifth, notes[0] + 12]
+    } else {
+        vec![notes[0] - Interval::Unison, notes[0] - Interval::PerfectFifth, notes[0] - 12]
+    };
+    
 
     // We want only notes in the scale.
     let scale_notes = scale.notes();
@@ -33,7 +44,7 @@ fn counterpoint(notes: &[Pitch], scale: &Scale) -> Option<Vec<Pitch>> {
     shuffle(&mut opening_pitches);
 
     for opening in opening_pitches {
-        let res = counterpoint_helper(notes, &vec![opening], scale);
+        let res = counterpoint_helper(notes, &vec![opening], scale, direction);
         if res.is_some() {
             return res;
         }
@@ -41,7 +52,7 @@ fn counterpoint(notes: &[Pitch], scale: &Scale) -> Option<Vec<Pitch>> {
     None
 }
 
-fn counterpoint_helper(notes: &[Pitch], so_far: &[Pitch], scale: &Scale) -> Option<Vec<Pitch>> {
+fn counterpoint_helper(notes: &[Pitch], so_far: &[Pitch], scale: &Scale, direction: Direction) -> Option<Vec<Pitch>> {
     if so_far.len() == notes.len() {
         return Some(Vec::from(so_far))
     }
@@ -50,10 +61,18 @@ fn counterpoint_helper(notes: &[Pitch], so_far: &[Pitch], scale: &Scale) -> Opti
 
     // If this is the ending, we must choose a unison or octave.
     let mut options = if so_far.len() == notes.len() - 1 {
-        vec![other_note + Interval::Unison, other_note + 12]
+        if direction == Direction::Above {
+            vec![other_note + Interval::Unison, other_note + 12]
+        } else {
+            vec![other_note - Interval::Unison, other_note - 12]
+        }
     } else {
         // Otherwise, we want a consonant interval.
-        vec![other_note + Interval::PerfectFifth, other_note + Interval::MinorThird, other_note + Interval::MajorThird, other_note + Interval::MinorSixth, other_note + Interval::MajorSixth, other_note + 12]
+        if direction == Direction::Above {
+            vec![other_note + Interval::PerfectFifth, other_note + Interval::MinorThird, other_note + Interval::MajorThird, other_note + Interval::MinorSixth, other_note + Interval::MajorSixth, other_note + 12, other_note + 12 + Interval::MinorThird, other_note + 12 + Interval::MajorThird]
+        } else {
+            vec![other_note - Interval::PerfectFifth, other_note - Interval::MinorThird, other_note - Interval::MajorThird, other_note - Interval::MinorSixth, other_note - Interval::MajorSixth, other_note - 12, other_note - 12 + Interval::MinorThird, other_note - 12 - Interval::MajorThird]
+        }
     };
 
     // We only want notes from the scale.
@@ -84,7 +103,7 @@ fn counterpoint_helper(notes: &[Pitch], so_far: &[Pitch], scale: &Scale) -> Opti
     for idx in (0..options.len()).into_iter().rev() {
         let option = options[idx].semitones_from_middle_c();
         let other = other_note.semitones_from_middle_c();
-        if option - other > 15 { // 16 semitones is an octave (12) + a major third (4)
+        if (option - other).abs() as u8 > 12 + Interval::MajorThird.semitones() {
             options.remove(idx);
         }
     }
@@ -122,10 +141,10 @@ fn counterpoint_helper(notes: &[Pitch], so_far: &[Pitch], scale: &Scale) -> Opti
         let option = options[idx];
         let prev_note = so_far[so_far.len() - 1];
 
-        let is_skip = option.semitones_from_middle_c() - prev_note.semitones_from_middle_c() > 2;
+        let is_skip = (option.semitones_from_middle_c() - prev_note.semitones_from_middle_c()).abs() as u8 > Interval::MajorSecond.semitones();
 
         let other_prev_note = notes[so_far.len() - 1];
-        let is_other_skip = other_note.semitones_from_middle_c() - other_prev_note.semitones_from_middle_c() > 2;
+        let is_other_skip = (other_note.semitones_from_middle_c() - other_prev_note.semitones_from_middle_c()).abs() as u8 > Interval::MajorSecond.semitones();
 
         if is_skip && is_other_skip {
             let motion = option.semitones_from_middle_c() - prev_note.semitones_from_middle_c();
@@ -137,10 +156,62 @@ fn counterpoint_helper(notes: &[Pitch], so_far: &[Pitch], scale: &Scale) -> Opti
         }
     }
 
-    // Don't repeat the same note
+    // Don't repeat the same note more than twice
     for idx in (0..options.len()).into_iter().rev() {
-        if options[idx].0 == so_far[so_far.len() - 1].0 {
+        if so_far.len() > 1 {
+            if options[idx].0 == so_far[so_far.len() - 1].0 && so_far[so_far.len() - 1].0 == so_far[so_far.len() - 2].0 {
+                options.remove(idx);
+            }
+        }
+    }
+
+
+    // Don't leap more than an octave
+    for idx in (0..options.len()).into_iter().rev() {
+        let option = options[idx];
+        let prev_note = so_far[so_far.len() - 1];
+        let leap = (option.semitones_from_middle_c() - prev_note.semitones_from_middle_c()).abs() as u8;
+        if leap > 12 {
             options.remove(idx);
+        }
+    }
+
+    // Don't leap by a tritone
+    for idx in (0..options.len()).into_iter().rev() {
+        let option = options[idx];
+        let prev_note = so_far[so_far.len() - 1];
+        let leap = (option.semitones_from_middle_c() - prev_note.semitones_from_middle_c()).abs() as u8;
+        if leap == Interval::Tritone.semitones() {
+            options.remove(idx);
+        }
+    }
+
+    // Approach the last note via stepwise motion
+    if so_far.len() == notes.len() - 1 {
+        for idx in (0..options.len()).into_iter().rev() {
+            let option = options[idx];
+            let prev_note = so_far[so_far.len() - 1];
+            let leap = (option.semitones_from_middle_c() - prev_note.semitones_from_middle_c()).abs() as u8;
+            if leap > Interval::MajorSecond.semitones() {
+                options.remove(idx);
+            }
+        }
+    }
+
+    // If you leap, you must go the opposite direction by step
+    for idx in (0..options.len()).into_iter().rev() {
+        let option = options[idx];
+        let prev_note = so_far[so_far.len() - 1];
+        if so_far.len() > 1 {
+            let prev_prev_note = so_far[so_far.len() - 2];
+
+            let motion = prev_note.semitones_from_middle_c() - prev_prev_note.semitones_from_middle_c();
+            if motion.abs() as u8 > Interval::MajorThird.semitones() {
+                let curr_motion = option.semitones_from_middle_c() - prev_note.semitones_from_middle_c();
+                if curr_motion.abs() as u8 > Interval::MajorSecond.semitones() || sign(curr_motion) == sign(motion) {
+                    options.remove(idx);
+                }
+            }
         }
     }
 
@@ -151,7 +222,7 @@ fn counterpoint_helper(notes: &[Pitch], so_far: &[Pitch], scale: &Scale) -> Opti
         let mut r = Vec::from(so_far);
         r.push(option);
 
-        let res = counterpoint_helper(notes, &r, scale);
+        let res = counterpoint_helper(notes, &r, scale, direction);
         if res.is_some() {
             return res;
         }
@@ -159,22 +230,74 @@ fn counterpoint_helper(notes: &[Pitch], so_far: &[Pitch], scale: &Scale) -> Opti
     None
 }
 
+fn parse_music(data: &mut std::str::Chars) -> Vec<Pitch> {
+    let mut result = vec![];
+
+    loop {
+        let mut c = data.next();
+
+        while c.map_or(false, |f| { f.is_ascii_whitespace() }) {
+            c = data.next();
+        }
+
+        if let Some(c) = c {
+            let pitch_base = match c.to_ascii_lowercase() {
+                'a' => PitchBase::A,
+                'b' => PitchBase::B,
+                'c' => PitchBase::C,
+                'd' => PitchBase::D,
+                'e' => PitchBase::E,
+                'f' => PitchBase::F,
+                'g' => PitchBase::G,
+                _ => panic!("Unexpected pitch base")
+            };
+
+            let mut c = data.next().expect("Unexpected end of file");
+            let pitch_modifier = if !c.is_numeric() {
+                let res = match c {
+                    '#' => PitchModifier::Sharp,
+                    'b' => PitchModifier::Flat,
+                    _ => panic!("Unexpected pitch modifier")
+                };
+                c = data.next().expect("Unexpected end of file");
+                res
+            } else {
+                PitchModifier::Natural
+            };
+
+            let octave = match c {
+                '0' => 0,
+                '1' => 1,
+                '2' => 2,
+                '3' => 3,
+                '4' => 4,
+                '5' => 5,
+                '6' => 6,
+                '7' => 7,
+                '8' => 8,
+                _ => panic!("Unexpected octave value")
+            };
+
+            result.push(Pitch(Note(pitch_base, pitch_modifier), octave));
+        } else {
+            break;
+        }
+    }
+    result
+}
+
 fn main() {
-    let cantus_firmus = vec![
-        Pitch(Note(PitchBase::D, PitchModifier::Natural), 4),
-        Pitch(Note(PitchBase::F, PitchModifier::Natural), 4),
-        Pitch(Note(PitchBase::E, PitchModifier::Natural), 4),
-        Pitch(Note(PitchBase::D, PitchModifier::Natural), 4),
-        Pitch(Note(PitchBase::G, PitchModifier::Natural), 4),
-        Pitch(Note(PitchBase::F, PitchModifier::Natural), 4),
-        Pitch(Note(PitchBase::A, PitchModifier::Natural), 4),
-        Pitch(Note(PitchBase::G, PitchModifier::Natural), 4),
-        Pitch(Note(PitchBase::F, PitchModifier::Natural), 4),
-        Pitch(Note(PitchBase::E, PitchModifier::Natural), 4),
-        Pitch(Note(PitchBase::D, PitchModifier::Natural), 4),
-    ];
-    if let Some(notes) = counterpoint(&cantus_firmus, &Scale(Note(PitchBase::D, PitchModifier::Natural), ScaleType::Dorian)) {
-        println!("{:#?}\n{:#?}", cantus_firmus, notes);
+    let cantus_firmus = include_str!("../cantus.txt");
+    let cantus_firmus = parse_music(&mut cantus_firmus.chars());
+    if let Some(notes) = counterpoint(&cantus_firmus, &Scale(Note(PitchBase::C, PitchModifier::Natural), ScaleType::Ionian), Direction::Below) {
+        for note in cantus_firmus {
+            print!("{} ", note);
+        }
+        println!();
+        for note in notes {
+            print!("{} ", note);
+        }
+        println!();
     } else {
         println!("Error: No counterpoint :(");
     }
